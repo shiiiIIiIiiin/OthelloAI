@@ -112,7 +112,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     try {
       final response = await engine.sendPosition(
           _board.toProtocolString(), colorStr, _currentTimeMs);
-      _currentTimeMs += widget.config.increment;
 
       if (response == 'pass') {
         _applyMove(-1, -1);
@@ -137,7 +136,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     if (row < 0 || row >= 8 || col < 0 || col >= 8) return;
     if (!_board.isLegal(row, col, _currentColor)) return;
 
-    _currentTimeMs += widget.config.increment;
     _applyMove(row, col);
   }
 
@@ -161,7 +159,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           _flippingStones = {};
           _placedStone = null;
           _currentColor = Board.opponent(_currentColor);
-          _currentTimeMs = widget.config.timePerMove;
+          _currentTimeMs += widget.config.increment;
         });
         _nextTurn();
       });
@@ -356,8 +354,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
             children: [
               Text('$name: ${_board.count(color)}',
                   style: const TextStyle(fontSize: 16)),
-              if (isActive && _turnState == _TurnState.engineThinking)
-                Text(
+              Visibility(
+                visible: isActive && _turnState == _TurnState.engineThinking,
+                maintainSize: true,
+                maintainAnimation: true,
+                maintainState: true,
+                child: Text(
                   _formatTime(_remainingMs),
                   style: TextStyle(
                     fontSize: 13,
@@ -365,6 +367,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                     fontWeight: _remainingMs < 5000 ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
+              ),
             ],
           ),
         ],
