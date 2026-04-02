@@ -174,6 +174,64 @@ int alphabeta(int b[8][8], int color, int depth, int alpha, int beta) {
 }
 
 // ================================================
+// 完全読み（終局まで読み切る、評価関数不要）
+// 戻り値：myColorにとっての石差（正=勝ち、負=負け、0=引き分け）
+// ================================================
+int solveExact(int b[8][8], int color, int alpha, int beta) {
+    auto moves = legalMoves(b, color);
+
+    // 終局チェック
+    if (moves.empty()) {
+        auto oppMoves = legalMoves(b, opponent(color));
+        if (oppMoves.empty()) {
+            // 終局 → 実際の石差を返す
+            int black = 0, white = 0;
+            for (int r = 0; r < 8; r++)
+                for (int c = 0; c < 8; c++) {
+                    if (b[r][c] == BLACK) black++;
+                    if (b[r][c] == WHITE) white++;
+                }
+            return myColor == BLACK ? black - white : white - black;
+        }
+        // パス
+        return solveExact(b, opponent(color), alpha, beta);
+    }
+
+    if (color == myColor) {
+        int best = -INF;
+        for (auto [r, c] : moves) {
+            int tmp[8][8];
+            memcpy(tmp, b, sizeof(tmp));
+            place(tmp, r, c, color);
+            best = max(best, solveExact(tmp, opponent(color), alpha, beta));
+            alpha = max(alpha, best);
+            if (alpha >= beta) break;
+        }
+        return best;
+    } else {
+        int best = INF;
+        for (auto [r, c] : moves) {
+            int tmp[8][8];
+            memcpy(tmp, b, sizeof(tmp));
+            place(tmp, r, c, color);
+            best = min(best, solveExact(tmp, opponent(color), alpha, beta));
+            beta = min(beta, best);
+            if (alpha >= beta) break;
+        }
+        return best;
+    }
+}
+
+// 空きマス数を数える
+int countEmpty(int b[8][8]) {
+    int cnt = 0;
+    for (int r = 0; r < 8; r++)
+        for (int c = 0; c < 8; c++)
+            if (b[r][c] == EMPTY) cnt++;
+    return cnt;
+}
+
+// ================================================
 // 探索
 // ================================================
 string search(int color, int timeLimitMs) {
@@ -186,7 +244,24 @@ string search(int color, int timeLimitMs) {
     int bestRow = moves[0].first, bestCol = moves[0].second;
     int bestScore = -INF;
 
-    // 深さを1から増やしながら探索（時間が許す限り深く）
+    // 残り空きマスが閾値以下なら完全読み
+    const int EXACT_THRESHOLD = 15;
+    if (countEmpty(board) <= EXACT_THRESHOLD) {
+        for (auto [r, c] : moves) {
+            int tmp[8][8];
+            memcpy(tmp, board, sizeof(tmp));
+            place(tmp, r, c, color);
+            int score = solveExact(tmp, opponent(color), -INF, INF);
+            if (score > bestScore) {
+                bestScore = score;
+                bestRow = r;
+                bestCol = c;
+            }
+        }
+        return moveToString(bestRow, bestCol);
+    }
+
+    // 通常のαβ（反復深化）
     for (int depth = 1; depth <= 20; depth++) {
         int curBestRow = moves[0].first, curBestCol = moves[0].second;
         int curBestScore = -INF;
