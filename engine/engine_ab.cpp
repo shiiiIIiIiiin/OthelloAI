@@ -245,7 +245,7 @@ string search(int color, int timeLimitMs) {
     int bestScore = -INF;
 
     // 残り空きマスが閾値以下なら完全読み
-    const int EXACT_THRESHOLD = 15;
+    const int EXACT_THRESHOLD = 12;
     if (countEmpty(board) <= EXACT_THRESHOLD) {
         for (auto [r, c] : moves) {
             int tmp[8][8];
