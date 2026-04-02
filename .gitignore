@@ -1,0 +1,11 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# C++エンジンのビルド成果物
+*.exe
+*.out
+*.o
+*.obj
+*.pdb
+engine/build/
