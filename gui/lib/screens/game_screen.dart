@@ -15,7 +15,7 @@ class GameScreen extends StatefulWidget {
   State<GameScreen> createState() => _GameScreenState();
 }
 
-typedef _Snapshot = ({Board board, int color, int timeMs});
+typedef _Snapshot = ({Board board, int color, int blackPoolMs, int whitePoolMs});
 
 class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateMixin {
   late Board _board;
@@ -27,19 +27,31 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   late String _blackName;
   late String _whiteName;
   String _message = '';
-  int _currentTimeMs = 0;
+  int _blackPoolMs = 0;
+  int _whitePoolMs = 0;
   final List<_Snapshot> _history = [];
   late AnimationController _flipController;
   Map<String, ({int fromColor, int toColor})> _flippingStones = {};
-  List<int>? _placedStone; // [row, col, color]
+  List<int>? _placedStone;
   Timer? _countdownTimer;
-  int _remainingMs = 0;
+  String? _timeoutMessage;
+
+  int get _currentPool => _currentColor == Board.black ? _blackPoolMs : _whitePoolMs;
+
+  void _setCurrentPool(int ms) {
+    if (_currentColor == Board.black) {
+      _blackPoolMs = ms;
+    } else {
+      _whitePoolMs = ms;
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _board = Board();
-    _currentTimeMs = widget.config.timePerMove;
+    _blackPoolMs = widget.config.timePerMove;
+    _whitePoolMs = widget.config.timePerMove;
     _blackName = widget.config.blackName;
     _whiteName = widget.config.whiteName;
     _flipController = AnimationController(
@@ -80,7 +92,6 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       setState(() => _message = '${_colorName(_currentColor)} はパス');
       Future.delayed(const Duration(milliseconds: 800), () {
         _currentColor = Board.opponent(_currentColor);
-        _currentTimeMs = widget.config.timePerMove;
         _nextTurn();
       });
       return;
@@ -104,14 +115,20 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _askEngine() async {
-    final engine =
-        _currentColor == Board.black ? _blackEngine : _whiteEngine;
+    final engine = _currentColor == Board.black ? _blackEngine : _whiteEngine;
     if (engine == null) return;
 
     final colorStr = _currentColor == Board.black ? 'B' : 'W';
+    final thinkMs = _currentPool;
+
     try {
       final response = await engine.sendPosition(
-          _board.toProtocolString(), colorStr, _currentTimeMs);
+          _board.toProtocolString(), colorStr, thinkMs);
+
+      if (_turnState == _TurnState.gameOver) return; // 時間切れ処理済み
+
+      // タイマーがリアルタイムにプールを減算済みなのでincrementのみ加算
+      _setCurrentPool((_currentPool + widget.config.increment).clamp(0, 1 << 30));
 
       if (response == 'pass') {
         _applyMove(-1, -1);
@@ -141,7 +158,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   void _applyMove(int row, int col) {
     _stopCountdown();
-    _history.add((board: Board.copy(_board), color: _currentColor, timeMs: _currentTimeMs));
+    _history.add((
+      board: Board.copy(_board),
+      color: _currentColor,
+      blackPoolMs: _blackPoolMs,
+      whitePoolMs: _whitePoolMs,
+    ));
 
     if (row >= 0 && col >= 0) {
       final flipped = _board.getFlippedStones(row, col, _currentColor);
@@ -159,14 +181,12 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
           _flippingStones = {};
           _placedStone = null;
           _currentColor = Board.opponent(_currentColor);
-          _currentTimeMs += widget.config.increment;
         });
         _nextTurn();
       });
     } else {
       setState(() {
         _currentColor = Board.opponent(_currentColor);
-        _currentTimeMs = widget.config.timePerMove;
       });
       _nextTurn();
     }
@@ -181,7 +201,8 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     setState(() {
       _board = snapshot.board;
       _currentColor = snapshot.color;
-      _currentTimeMs = snapshot.timeMs;
+      _blackPoolMs = snapshot.blackPoolMs;
+      _whitePoolMs = snapshot.whitePoolMs;
       _flippingStones = {};
       _placedStone = null;
       _turnState = _TurnState.humanTurn;
@@ -191,13 +212,24 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
 
   void _startCountdown() {
     _countdownTimer?.cancel();
-    _remainingMs = _currentTimeMs;
-    _countdownTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _countdownTimer = Timer.periodic(const Duration(milliseconds: 10), (_) {
       setState(() {
-        _remainingMs -= 100;
-        if (_remainingMs <= 0) {
-          _remainingMs = 0;
-          _countdownTimer?.cancel();
+        if (_currentColor == Board.black) {
+          _blackPoolMs -= 10;
+          if (_blackPoolMs <= 0) {
+            _blackPoolMs = 0;
+            _stopCountdown();
+            _timeoutMessage = '黒の時間切れ負け';
+            _turnState = _TurnState.gameOver;
+          }
+        } else {
+          _whitePoolMs -= 10;
+          if (_whitePoolMs <= 0) {
+            _whitePoolMs = 0;
+            _stopCountdown();
+            _timeoutMessage = '白の時間切れ負け';
+            _turnState = _TurnState.gameOver;
+          }
         }
       });
     });
@@ -215,7 +247,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       final s = (ms % 60000) ~/ 1000;
       return '$m:${s.toString().padLeft(2, '0')}';
     }
-    return '${(ms / 1000).toStringAsFixed(1)}s';
+    return '${(ms / 1000).toStringAsFixed(2)}s';
   }
 
   String _colorName(int color) => color == Board.black ? '黒' : '白';
@@ -248,17 +280,15 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
       body: Column(
         children: [
           const SizedBox(height: 16),
-          // スコア
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              _scoreChip(Board.black, _blackName),
+              _scoreChip(Board.black, _blackName, _blackPoolMs),
               const SizedBox(width: 32),
-              _scoreChip(Board.white, _whiteName),
+              _scoreChip(Board.white, _whiteName, _whitePoolMs),
             ],
           ),
           const SizedBox(height: 8),
-          // 盤面
           Expanded(
             child: Center(
               child: AspectRatio(
@@ -267,8 +297,7 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
                   padding: const EdgeInsets.all(16),
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final size = Size(
-                          constraints.maxWidth, constraints.maxHeight);
+                      final size = Size(constraints.maxWidth, constraints.maxHeight);
                       return GestureDetector(
                         onTapDown: (d) => _onTap(d.localPosition, size),
                         child: CustomPaint(
@@ -290,14 +319,13 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               ),
             ),
           ),
-          // メッセージ＋ボタン
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 Text(
-                  _turnState == _TurnState.gameOver ? _resultText() : _message,
+                  _turnState == _TurnState.gameOver ? (_timeoutMessage ?? _resultText()) : _message,
                   style: const TextStyle(fontSize: 18),
                 ),
                 const SizedBox(width: 24),
@@ -324,9 +352,10 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
     );
   }
 
-  Widget _scoreChip(int color, String name) {
-    final isActive =
-        _currentColor == color && _turnState != _TurnState.gameOver;
+  Widget _scoreChip(int color, String name, int poolMs) {
+    final isActive = _currentColor == color && _turnState != _TurnState.gameOver;
+    final displayMs = poolMs;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
@@ -355,16 +384,19 @@ class _GameScreenState extends State<GameScreen> with SingleTickerProviderStateM
               Text('$name: ${_board.count(color)}',
                   style: const TextStyle(fontSize: 16)),
               Visibility(
-                visible: isActive && _turnState == _TurnState.engineThinking,
+                visible: _turnState == _TurnState.engineThinking &&
+                    (color == Board.black
+                        ? widget.config.blackPlayer == PlayerType.engine
+                        : widget.config.whitePlayer == PlayerType.engine),
                 maintainSize: true,
                 maintainAnimation: true,
                 maintainState: true,
                 child: Text(
-                  _formatTime(_remainingMs),
+                  _formatTime(displayMs),
                   style: TextStyle(
                     fontSize: 13,
-                    color: _remainingMs < 5000 ? Colors.red : Colors.black54,
-                    fontWeight: _remainingMs < 5000 ? FontWeight.bold : FontWeight.normal,
+                    color: displayMs < 5000 ? Colors.red : Colors.black54,
+                    fontWeight: displayMs < 5000 ? FontWeight.bold : FontWeight.normal,
                   ),
                 ),
               ),

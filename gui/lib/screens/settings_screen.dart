@@ -18,7 +18,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _blackPath = '';
   String _whitePath = '';
   int _timePerMove = 5000;
-  int _increment = 1000;
+  int _increment = 5000;
 
   @override
   void dispose() {

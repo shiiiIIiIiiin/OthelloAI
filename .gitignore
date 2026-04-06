@@ -2,6 +2,12 @@
 .DS_Store
 Thumbs.db
 
+# Claude Code
+.claude/
+
+# VSCode
+.vscode/
+
 # C++エンジンのビルド成果物
 *.exe
 *.out
@@ -9,3 +15,15 @@ Thumbs.db
 *.obj
 *.pdb
 engine/build/
+
+# Flutter ビルド成果物
+gui/build/
+gui/.dart_tool/
+gui/.flutter-plugins
+gui/.flutter-plugins-dependencies
+gui/windows/flutter/ephemeral/
+gui/macos/Flutter/ephemeral/
+gui/*.iml
+
+# Flutter / Dart パッケージキャッシュ（pubspec.lockは残す）
+# pubspec.lock はコミットする（再現性のため）

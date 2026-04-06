@@ -143,8 +143,8 @@ string search(int color, int timeLimitMs) {
     if (moves.empty()) return "pass";
     if (moves.size() == 1) return moveToString(moves[0].first, moves[0].second);
 
-    // 1手ごとの加算時間だけを使って、各手に均等に配分
-    int timePerMove = incrementMs / (int)moves.size();
+    // GUIから渡された持ち時間を各手に均等に配分（500ms余裕を残す）
+    int timePerMove = max(0, timeLimitMs - 500) / (int)moves.size();
 
 
     int bestIdx = 0;

@@ -91,8 +91,6 @@ void place(int b[8][8], int r, int c, int color) {
 // ================================================
 // 評価関数
 // ================================================
-
-// マスごとの重み（角は高く、角の隣は低く）
 const int WEIGHT[8][8] = {
     { 100, -20,  10,   5,   5,  10, -20, 100},
     { -20, -40,  -5,  -5,  -5,  -5, -40, -20},
@@ -104,13 +102,12 @@ const int WEIGHT[8][8] = {
     { 100, -20,  10,   5,   5,  10, -20, 100},
 };
 
-// 盤面を評価する（myColorにとって有利なら大きい値）
 int evaluate(int b[8][8]) {
     int score = 0;
     for (int r = 0; r < 8; r++)
         for (int c = 0; c < 8; c++) {
-            if      (b[r][c] == myColor)           score += WEIGHT[r][c];
-            else if (b[r][c] == opponent(myColor))  score -= WEIGHT[r][c];
+            if      (b[r][c] == myColor)          score += WEIGHT[r][c];
+            else if (b[r][c] == opponent(myColor)) score -= WEIGHT[r][c];
         }
     return score;
 }
@@ -118,18 +115,12 @@ int evaluate(int b[8][8]) {
 // ================================================
 // αβ探索
 // ================================================
-// color: 今の手番
-// alpha: 自分がこれ以上良い手を見つけているなら枝刈り
-// beta:  相手がこれ以上良い手を見つけているなら枝刈り
-// 戻り値：myColorにとっての評価値
 int alphabeta(int b[8][8], int color, int depth, int alpha, int beta) {
     auto moves = legalMoves(b, color);
 
-    // 終局チェック（両者パスなら終局）
     if (moves.empty()) {
         auto oppMoves = legalMoves(b, opponent(color));
         if (oppMoves.empty()) {
-            // 終局 → 石数で勝敗
             int black = 0, white = 0;
             for (int r = 0; r < 8; r++)
                 for (int c = 0; c < 8; c++) {
@@ -139,15 +130,12 @@ int alphabeta(int b[8][8], int color, int depth, int alpha, int beta) {
             int diff = myColor == BLACK ? black - white : white - black;
             return diff > 0 ? INF : (diff < 0 ? -INF : 0);
         }
-        // パス → 手番を交代して続ける
         return alphabeta(b, opponent(color), depth, alpha, beta);
     }
 
-    // 深さ制限に達したら評価値を返す
     if (depth == 0) return evaluate(b);
 
     if (color == myColor) {
-        // 自分の手番 → 最大化
         int best = -INF;
         for (auto [r, c] : moves) {
             int tmp[8][8];
@@ -155,11 +143,10 @@ int alphabeta(int b[8][8], int color, int depth, int alpha, int beta) {
             place(tmp, r, c, color);
             best = max(best, alphabeta(tmp, opponent(color), depth - 1, alpha, beta));
             alpha = max(alpha, best);
-            if (alpha >= beta) break; // βカット
+            if (alpha >= beta) break;
         }
         return best;
     } else {
-        // 相手の手番 → 最小化
         int best = INF;
         for (auto [r, c] : moves) {
             int tmp[8][8];
@@ -167,24 +154,21 @@ int alphabeta(int b[8][8], int color, int depth, int alpha, int beta) {
             place(tmp, r, c, color);
             best = min(best, alphabeta(tmp, opponent(color), depth - 1, alpha, beta));
             beta = min(beta, best);
-            if (alpha >= beta) break; // αカット
+            if (alpha >= beta) break;
         }
         return best;
     }
 }
 
 // ================================================
-// 完全読み（終局まで読み切る、評価関数不要）
-// 戻り値：myColorにとっての石差（正=勝ち、負=負け、0=引き分け）
+// 完全読み
 // ================================================
 int solveExact(int b[8][8], int color, int alpha, int beta) {
     auto moves = legalMoves(b, color);
 
-    // 終局チェック
     if (moves.empty()) {
         auto oppMoves = legalMoves(b, opponent(color));
         if (oppMoves.empty()) {
-            // 終局 → 実際の石差を返す
             int black = 0, white = 0;
             for (int r = 0; r < 8; r++)
                 for (int c = 0; c < 8; c++) {
@@ -193,7 +177,6 @@ int solveExact(int b[8][8], int color, int alpha, int beta) {
                 }
             return myColor == BLACK ? black - white : white - black;
         }
-        // パス
         return solveExact(b, opponent(color), alpha, beta);
     }
 
@@ -222,7 +205,6 @@ int solveExact(int b[8][8], int color, int alpha, int beta) {
     }
 }
 
-// 空きマス数を数える
 int countEmpty(int b[8][8]) {
     int cnt = 0;
     for (int r = 0; r < 8; r++)
@@ -239,14 +221,10 @@ string search(int color, int timeLimitMs) {
     if (moves.empty()) return "pass";
     if (moves.size() == 1) return moveToString(moves[0].first, moves[0].second);
 
-    auto startTime = chrono::steady_clock::now();
-
-    int bestRow = moves[0].first, bestCol = moves[0].second;
-    int bestScore = -INF;
-
-    // 残り空きマスが閾値以下なら完全読み
-    const int EXACT_THRESHOLD = 12;
-    if (countEmpty(board) <= EXACT_THRESHOLD) {
+    // 完全読み（空きマスが少ない終盤、かつ十分な時間がある場合）
+    if (countEmpty(board) <= 12 && timeLimitMs >= 1500) {
+        int bestRow = moves[0].first, bestCol = moves[0].second;
+        int bestScore = -INF;
         for (auto [r, c] : moves) {
             int tmp[8][8];
             memcpy(tmp, board, sizeof(tmp));
@@ -261,16 +239,20 @@ string search(int color, int timeLimitMs) {
         return moveToString(bestRow, bestCol);
     }
 
-    // 通常のαβ（反復深化）
+    auto startTime = chrono::steady_clock::now();
+
+    int bestRow = moves[0].first, bestCol = moves[0].second;
+    int bestScore = -INF;
+
+    // 反復深化αβ
     for (int depth = 1; depth <= 20; depth++) {
         int curBestRow = moves[0].first, curBestCol = moves[0].second;
         int curBestScore = -INF;
 
         for (auto [r, c] : moves) {
-            // 時間チェック（制限の80%を超えたら打ち切り）
             auto now = chrono::steady_clock::now();
             int elapsed = chrono::duration_cast<chrono::milliseconds>(now - startTime).count();
-            if (elapsed >= timeLimitMs * 8 / 10) goto done;
+            if (elapsed >= timeLimitMs - 500) goto done;
 
             int tmp[8][8];
             memcpy(tmp, board, sizeof(tmp));
@@ -284,7 +266,6 @@ string search(int color, int timeLimitMs) {
             }
         }
 
-        // この深さまで読み切れたら結果を確定
         bestRow = curBestRow;
         bestCol = curBestCol;
         bestScore = curBestScore;
